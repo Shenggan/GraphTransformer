@@ -28,6 +28,10 @@ class UGformerV1(nn.Module):
             self.dropouts.append(nn.Dropout(dropout))
 
     def forward(self, input_x, graph_pool, X_concat):
+        """
+        input_x: [neighbour_num, node_num] node neighbour
+        X_concat: [node_num, feature_dim] input features
+        """
         prediction_scores = 0
         input_Tr = F.embedding(input_x, X_concat)
         for layer_idx in range(self.num_GNN_layers):

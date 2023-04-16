@@ -3,10 +3,10 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-torch.manual_seed(123)
+torch.manual_seed(42)
 
 import numpy as np
-np.random.seed(123)
+np.random.seed(42)
 import time
 
 from UGformerV1_Sup import *
@@ -16,7 +16,7 @@ from util import *
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 if torch.cuda.is_available():
-    torch.cuda.manual_seed_all(123)
+    torch.cuda.manual_seed_all(42)
 
 # Parameters
 # ==================================================
@@ -36,6 +36,8 @@ parser.add_argument("--num_timesteps", default=1, type=int, help="Number of self
 parser.add_argument("--ff_hidden_size", default=1024, type=int, help="The hidden size for the feedforward layer")
 parser.add_argument("--num_neighbors", default=4, type=int, help="")
 parser.add_argument('--fold_idx', type=int, default=1, help='The fold index. 0-9.')
+parser.add_argument("--path_num", default=5, type=int, help="")
+parser.add_argument("--path_len", default=3, type=int, help="")
 args = parser.parse_args()
 
 print(args)
@@ -107,9 +109,20 @@ def get_batch_data(batch_graph):
     input_neighbors = []
     for input_node in range(X_concat.shape[0]):
         if input_node in dict_Adj_block:
-            input_neighbors.append([input_node] + list(np.random.choice(dict_Adj_block[input_node], args.num_neighbors, replace=True)))
+            neighbors = [input_node]
+            for _ in range(args.path_num):
+                cur_node = input_node
+                for _ in range(args.path_len):
+                    cur_node = np.random.choice(dict_Adj_block[cur_node])
+                    neighbors.append(cur_node)
+            input_neighbors.append(neighbors)
         else:
-            input_neighbors.append([input_node for _ in range(args.num_neighbors+1)])
+            input_neighbors.append([input_node for _ in range(args.path_num * args.path_len + 1)])
+    # for input_node in range(X_concat.shape[0]):
+    #     if input_node in dict_Adj_block:
+    #         input_neighbors.append([input_node] + list(np.random.choice(dict_Adj_block[input_node], args.num_neighbors, replace=True)))
+    #     else:
+    #         input_neighbors.append([input_node for _ in range(args.num_neighbors+1)])
     input_x = np.array(input_neighbors)
     input_x = torch.transpose(torch.from_numpy(input_x), 0, 1).to(device) # [seq_length, batch_size] for pytorch transformer, not [batch_size, seq_length]
     #
