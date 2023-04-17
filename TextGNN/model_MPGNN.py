@@ -5,6 +5,78 @@ from torch.nn.parameter import Parameter
 from torch.nn import TransformerEncoder, TransformerEncoderLayer
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+class GGATGT(nn.Module):
+    def __init__(self, feature_dim_size, hidden_size, num_classes,
+                 num_self_att_layers, num_GNN_layers, nhead, dropout, act=torch.relu):
+        super(GGATGT, self).__init__()
+        self.num_GNN_layers = num_GNN_layers
+        self.emb_encode = nn.Linear(feature_dim_size, hidden_size)
+        self.dropout_encode = nn.Dropout(dropout)
+        self.gt_layers = torch.nn.ModuleList()
+        for _layer in range(self.num_GNN_layers):
+            encoder_layers = TransformerEncoderLayer(d_model=hidden_size, nhead=nhead, dim_feedforward=hidden_size, dropout=0.5)  # Default batch_first=False (seq, batch, feature) for pytorch < 1.9.0
+            self.gt_layers.append(TransformerEncoder(encoder_layers, num_self_att_layers))
+        
+        self.linear_w = nn.Linear(hidden_size, hidden_size, bias=False)
+        self.linear_a_1 = nn.Linear(hidden_size, 1, bias=False)
+        self.linear_a_2 = nn.Linear(hidden_size, 1, bias=False)
+        self.leakyrelu = nn.LeakyReLU(0.2)
+        self.softmax = nn.Softmax(dim=-1)
+
+        self.z0 = nn.Linear(hidden_size, hidden_size)
+        self.z1 = nn.Linear(hidden_size, hidden_size)
+
+        self.soft_att = nn.Linear(hidden_size, 1)
+        self.ln = nn.Linear(hidden_size, hidden_size)
+        self.act = act
+        self.prediction = nn.Linear(hidden_size, num_classes)
+        self.dropout = nn.Dropout(dropout)
+
+    def gat_later(self, h, adj):
+
+        a = torch.matmul(adj, h)
+        # update gate
+        z0 = self.z0(a)
+        z1 = self.z1(h)
+        z = torch.sigmoid(z0 + z1)
+
+        wh = self.linear_w(h)
+        wh1 = self.linear_a_1(wh)
+        wh2 = self.linear_a_2(wh)
+
+        e = self.leakyrelu(wh1 + wh2.transpose(-1, -2))
+
+        zero_vec = -10e10 * torch.ones_like(e)
+        attention = torch.where(adj > 0, e, zero_vec)
+        attention = self.dropout(self.softmax(attention))
+
+        h_new = torch.matmul(attention, wh)
+        return h * (1 - z) + h_new * z
+
+    def forward(self, inputs, adj, mask):
+        x = inputs
+        x = self.dropout_encode(x)
+        x = self.emb_encode(x)
+        x = x * mask
+        for idx_layer in range(self.num_GNN_layers):
+            x_t = torch.transpose(x, 0, 1)  # (seq, batch, feature) for pytorch transformer, pytorch < 1.9.0
+            x_t = self.gt_layers[idx_layer](x_t)
+            x_t = torch.transpose(x_t, 0, 1)  # (batch, seq, feature)
+            x = x + x_t
+            x = x * mask
+            x = self.gat_later(x, adj) * mask
+        # soft attention
+        soft_att = torch.sigmoid(self.soft_att(x))
+        x = self.act(self.ln(x))
+        x = soft_att * x * mask
+        # sum and max pooling, following https://openreview.net/pdf?id=wVFkD13GpeX
+        graph_embeddings = torch.sum(x, 1) * torch.amax(x, 1)
+        graph_embeddings = self.dropout(graph_embeddings)
+        prediction_scores = self.prediction(graph_embeddings)
+
+        return prediction_scores
+
 """@Dai Quoc Nguyen"""
 """Graph Transformer with Gated GNN"""
 class GatedGT(nn.Module):

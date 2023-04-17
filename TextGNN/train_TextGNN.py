@@ -60,7 +60,7 @@ if "GCN" in args.model:
                     dropout=args.dropout).to(device)
 
 elif "GatedGT" in args.model:
-    model = GatedGT(feature_dim_size=feature_dim_size,
+    model = GGATGT(feature_dim_size=feature_dim_size,
                     hidden_size=args.hidden_size,
                     num_classes=num_classes,
                     num_self_att_layers=1,
