@@ -3,10 +3,11 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-torch.manual_seed(42)
+seed = 42
+torch.manual_seed(seed)
 
 import numpy as np
-np.random.seed(42)
+np.random.seed(seed)
 import time
 
 from UGformerV1_Sup import *
@@ -16,7 +17,7 @@ from util import *
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 if torch.cuda.is_available():
-    torch.cuda.manual_seed_all(42)
+    torch.cuda.manual_seed_all(seed)
 
 # Parameters
 # ==================================================
@@ -136,7 +137,8 @@ print("Loading data... finished!")
 model = UGformerV1(feature_dim_size=feature_dim_size, ff_hidden_size=args.ff_hidden_size,
                         num_classes=num_classes, dropout=args.dropout,
                         num_self_att_layers=args.num_timesteps,
-                        num_GNN_layers=args.num_hidden_layers).to(device) #Each UGformer layer consists of a number of self-attention layers
+                        num_GNN_layers=args.num_hidden_layers,
+                        path_len=args.path_len, path_num=args.path_num).to(device) #Each UGformer layer consists of a number of self-attention layers
 
 def cross_entropy(pred, soft_targets): # use nn.CrossEntropyLoss if not using soft labels in Line 159
     logsoftmax = nn.LogSoftmax(dim=1)

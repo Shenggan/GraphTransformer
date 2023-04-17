@@ -7,13 +7,19 @@ from torch.nn import TransformerEncoder, TransformerEncoderLayer
 class UGformerV1(nn.Module):
 
     def __init__(self, feature_dim_size, ff_hidden_size, num_classes,
-                 num_self_att_layers, dropout, num_GNN_layers):
+                 num_self_att_layers, dropout, num_GNN_layers, path_len, path_num):
         super(UGformerV1, self).__init__()
         self.feature_dim_size = feature_dim_size
         self.ff_hidden_size = ff_hidden_size
         self.num_classes = num_classes
         self.num_self_att_layers = num_self_att_layers #Each layer consists of a number of self-attention layers
         self.num_GNN_layers = num_GNN_layers
+        self.path_len = path_len
+        self.path_num = path_num
+        self.path_emb = nn.Embedding(path_len, self.feature_dim_size)
+        self.ln1 = nn.LayerNorm(self.feature_dim_size)
+        self.ln2 = nn.LayerNorm(self.feature_dim_size)
+        self.fc = nn.Linear(self.feature_dim_size * 3, self.feature_dim_size)
         #
         self.ugformer_layers = torch.nn.ModuleList()
         for _ in range(self.num_GNN_layers): # nhead is set to 1 as the size of input feature vectors is odd
@@ -34,6 +40,7 @@ class UGformerV1(nn.Module):
         """
         prediction_scores = 0
         input_Tr = F.embedding(input_x, X_concat)
+        # input_Tr = self.merge_path(input_Tr)
         for layer_idx in range(self.num_GNN_layers):
             output_Tr = self.ugformer_layers[layer_idx](input_Tr)[0]
             #new input for next layer
@@ -45,6 +52,22 @@ class UGformerV1(nn.Module):
             prediction_scores += self.predictions[layer_idx](graph_embeddings)
 
         return prediction_scores
+
+    def merge_path(self, x):
+        residual = x
+        x = self.ln1(x)
+        paths = x[1:, :]
+        self_node = x[0, :].unsqueeze(0)
+        paths = paths.view(self.path_num, self.path_len, paths.shape[-2], paths.shape[-1])
+        path_emb = torch.tensor([i for i in range(self.path_len)], dtype=torch.int, device=x.device)
+        path_emb = self.path_emb(path_emb).unsqueeze(0).unsqueeze(2)
+        path_emb = path_emb.repeat(paths.shape[0], 1, paths.shape[2], 1)
+        paths = torch.cat([path_emb, paths - self_node.unsqueeze(0), paths], dim=-1)
+        paths = self.fc(paths)
+        paths = paths.view(-1, paths.shape[-2], paths.shape[-1])
+        x = residual + torch.cat([self_node, paths], dim=0)
+        x = self.ln2(x)
+        return x
 
 def label_smoothing(true_labels: torch.Tensor, classes: int, smoothing=0.1):
     """
